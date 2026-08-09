@@ -83,11 +83,10 @@ function getSessionDateTimeInZone(session: Session, timeZone: string) {
  */
 export const MOCK_CALENDAR_EVENTS: Record<string, { startTime: string; title: string }[]> = {
   "sme-1": [ // Dr. Aris Vance
-    { startTime: "2026-08-10 09:00", title: "Internal Research Sync (Google Calendar)" },
     { startTime: "2026-08-12 10:00", title: "Doctor Appointment (Google Calendar)" }
   ],
   "sme-2": [ // Neha Sharma
-    { startTime: "2026-08-10 10:00", title: "System Design Panel Interview (Google Calendar)" }
+    { startTime: "2026-08-13 16:00", title: "Architecture Review (Google Calendar)" }
   ],
   "sme-3": [ // Vikram Malhotra
     { startTime: "2026-08-10 18:30", title: "DP Practice Review Session (Google Calendar)" }
@@ -185,24 +184,30 @@ function buildRemediationOptions(params: {
   return options;
 }
 
-function computeCandidateScores(smes: SME[], session: Session, calendarEvents: Record<string, { startTime: string; title: string; isScheduled?: boolean }[]>, currentWeekHours: Record<string, number>) {
+function computeCandidateScores(
+  smes: SME[],
+  session: Session,
+  calendarEvents: Record<string, { startTime: string; title: string; isScheduled?: boolean }[]>,
+  currentWeekHours: Record<string, number>,
+  occupiedSlotsBySme: Record<string, Set<string>>
+) {
   return smes.map((sme) => {
-    const sessionTimeSlot = getSessionTimeSlotInZone(session, sme.timeZone);
-    const sessionDateTimeInSmeZone = getSessionDateTimeInZone(session, sme.timeZone);
+    const sessionTimeSlot = getSessionDisplaySlot(session);
     let availabilityScore = 0;
     let expertiseFitScore = 0;
     let rollingWorkloadScore = 0;
     let ratingScore = 0;
 
     const isSlotAvailable = sme.availableSlots.includes(sessionTimeSlot);
+    const isSlotAlreadyOccupied = occupiedSlotsBySme[sme.id]?.has(sessionTimeSlot) || false;
     const isWithinWeeklyCap = (currentWeekHours[sme.id] || 0) + session.durationHours <= sme.maxWeeklyHours;
     const syncedEvents = calendarEvents[sme.id] || [];
-    const calendarConflict = syncedEvents.find(ev => !ev.isScheduled && ev.startTime === sessionDateTimeInSmeZone);
+    const calendarConflict = syncedEvents.find(ev => !ev.isScheduled && ev.startTime === session.startTime);
     const hasCalendarEventConflict = !!calendarConflict;
 
-    if (isSlotAvailable && isWithinWeeklyCap && !hasCalendarEventConflict) {
+    if (isSlotAvailable && isWithinWeeklyCap && !hasCalendarEventConflict && !isSlotAlreadyOccupied) {
       availabilityScore = 100;
-    } else if (!isSlotAvailable || hasCalendarEventConflict) {
+    } else if (!isSlotAvailable || hasCalendarEventConflict || isSlotAlreadyOccupied) {
       availabilityScore = 0;
     } else {
       availabilityScore = 30;
@@ -249,6 +254,7 @@ function computeCandidateScores(smes: SME[], session: Session, calendarEvents: R
       hasCalendarEventConflict,
       calendarConflictTitle: calendarConflict?.title || "",
       isTierValid: smeTierVal >= requiredTierVal,
+      isSlotAlreadyOccupied,
       hasCoreSkill,
       semanticMatchScore: semanticMatch.score,
       semanticMatchReason: semanticMatch.reasoning
@@ -278,10 +284,14 @@ export function runMatchingEngine(
   const allConflicts: ConflictFlag[] = [];
   const draftSchedule: Record<string, string | null> = {};
   const assignmentMap = new Map<string, AssignmentResult>();
+  const occupiedSlotsBySme: Record<string, Set<string>> = {};
 
   // Track weekly hours assigned in current run to prevent overbooking
   const currentWeekHours: Record<string, number> = {};
-  smes.forEach((sme) => (currentWeekHours[sme.id] = 0));
+  smes.forEach((sme) => {
+    currentWeekHours[sme.id] = 0;
+    occupiedSlotsBySme[sme.id] = new Set<string>();
+  });
 
   // Sort a copy of sessions by priority (1 = High/Cohort, 2 = Mid/Mock, 3 = Low/Doubt)
   const sortedSessions = [...sessions].sort((a, b) => a.priority - b.priority);
@@ -293,6 +303,7 @@ export function runMatchingEngine(
       if (assignedSme) {
         draftSchedule[session.id] = assignedSme.id;
         currentWeekHours[assignedSme.id] = (currentWeekHours[assignedSme.id] || 0) + session.durationHours;
+        occupiedSlotsBySme[assignedSme.id]?.add(getSessionDisplaySlot(session));
         
         assignmentMap.set(session.id, {
           sessionId: session.id,
@@ -307,7 +318,7 @@ export function runMatchingEngine(
       }
     }
 
-    const candidateScores = computeCandidateScores(smes, session, calendarEvents, currentWeekHours);
+    const candidateScores = computeCandidateScores(smes, session, calendarEvents, currentWeekHours, occupiedSlotsBySme);
     const sessionTimeSlot = getSessionDisplaySlot(session);
 
     // Check if there is an explicit manual override for this session
@@ -345,6 +356,7 @@ export function runMatchingEngine(
       if (manualSme) {
         draftSchedule[session.id] = manualSme.id;
         currentWeekHours[manualSme.id] = (currentWeekHours[manualSme.id] || 0) + session.durationHours;
+        occupiedSlotsBySme[manualSme.id]?.add(sessionTimeSlot);
         const candidateInfo = candidateScores.find(c => c.sme.id === manualSme.id);
 
         const manualConflicts: ConflictFlag[] = [];
@@ -434,7 +446,7 @@ export function runMatchingEngine(
 
     // Auto-match logic
     const validCandidates = candidateScores
-      .filter((c) => c.isSlotAvailable && c.isTierValid && c.hasCoreSkill)
+      .filter((c) => c.isSlotAvailable && !c.isSlotAlreadyOccupied && c.isTierValid && c.hasCoreSkill)
       .sort(compareCandidatesForSession);
 
     const bestCandidate = validCandidates[0];
@@ -443,6 +455,7 @@ export function runMatchingEngine(
       const assignedSme = bestCandidate.sme;
       draftSchedule[session.id] = assignedSme.id;
       currentWeekHours[assignedSme.id] = (currentWeekHours[assignedSme.id] || 0) + session.durationHours;
+      occupiedSlotsBySme[assignedSme.id]?.add(sessionTimeSlot);
 
       const conflictsForSession: ConflictFlag[] = [];
 
