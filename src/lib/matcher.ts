@@ -9,6 +9,56 @@ const TIER_WEIGHTS: Record<string, number> = {
   "Standard SME": 1,
 };
 
+const TIMEZONE_ALIASES: Record<string, string> = {
+  "US/Pacific": "America/Los_Angeles",
+  "US/Eastern": "America/New_York",
+  "Asia/Kolkata": "Asia/Kolkata",
+  "Europe/London": "Europe/London",
+};
+
+function resolveTimeZone(timeZone: string) {
+  return TIMEZONE_ALIASES[timeZone] || timeZone;
+}
+
+function parseLocalDateTime(input: string) {
+  const [datePart, timePart] = input.split(" ");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
+  return { year, month, day, hour, minute };
+}
+
+function formatZonedDateTimeParts(date: Date, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: resolveTimeZone(timeZone),
+    hour12: false,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return {
+    day: get("weekday"),
+    hour: get("hour"),
+    minute: get("minute"),
+  };
+}
+
+function getUtcFromZonedLocal(input: string, timeZone: string) {
+  const { year, month, day, hour, minute } = parseLocalDateTime(input);
+  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  const zoned = new Date(guess.toLocaleString("en-US", { timeZone: resolveTimeZone(timeZone) }));
+  const offsetMinutes =
+    (zoned.getTime() - guess.getTime()) / 60000;
+  return new Date(Date.UTC(year, month - 1, day, hour, minute) - offsetMinutes * 60000);
+}
+
+function getSessionTimeSlotInZone(session: Session, timeZone: string) {
+  const utcDate = getUtcFromZonedLocal(session.startTime, session.timeZone);
+  const parts = formatZonedDateTimeParts(utcDate, timeZone);
+  return `${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
 /**
  * Mock synced Google Calendar events for SMEs to simulate real-time conflicts
  */
@@ -115,8 +165,8 @@ function buildRemediationOptions(params: {
 }
 
 function computeCandidateScores(smes: SME[], session: Session, calendarEvents: Record<string, { startTime: string; title: string; isScheduled?: boolean }[]>, currentWeekHours: Record<string, number>) {
-  const sessionTimeSlot = `${session.dayOfWeek.slice(0, 3)} ${session.startTime.split(" ")[1]}`;
   return smes.map((sme) => {
+    const sessionTimeSlot = getSessionTimeSlotInZone(session, sme.timeZone);
     let availabilityScore = 0;
     let expertiseFitScore = 0;
     let rollingWorkloadScore = 0;
@@ -235,8 +285,8 @@ export function runMatchingEngine(
       }
     }
 
-    const sessionTimeSlot = `${session.dayOfWeek.slice(0, 3)} ${session.startTime.split(" ")[1]}`;
     const candidateScores = computeCandidateScores(smes, session, calendarEvents, currentWeekHours);
+    const sessionTimeSlot = candidateScores[0] ? getSessionTimeSlotInZone(session, candidateScores[0].sme.timeZone) : `${session.dayOfWeek.slice(0, 3)} ${session.startTime.split(" ")[1]}`;
 
     // Check if there is an explicit manual override for this session
     const hasOverride = overrides[session.id] !== undefined;
