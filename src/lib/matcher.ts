@@ -59,6 +59,25 @@ function getSessionTimeSlotInZone(session: Session, timeZone: string) {
   return `${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
+function getSessionDisplaySlot(session: Session) {
+  return `${session.dayOfWeek.slice(0, 3)} ${session.startTime.split(" ")[1]}`;
+}
+
+function getSessionDateTimeInZone(session: Session, timeZone: string) {
+  const utcDate = getUtcFromZonedLocal(session.startTime, session.timeZone);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: resolveTimeZone(timeZone),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(utcDate);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
+}
+
 /**
  * Mock synced Google Calendar events for SMEs to simulate real-time conflicts
  */
@@ -143,13 +162,15 @@ function buildRemediationOptions(params: {
     });
   }
 
-  if (session.minSmeTier !== "Standard SME") {
+  const lowerTierCandidates = candidateScores
+    .filter((c) => c.sme.tier !== session.minSmeTier && TIER_WEIGHTS[c.sme.tier] < (TIER_WEIGHTS[session.minSmeTier] || 1))
+    .sort((a, b) => b.totalScore - a.totalScore);
+
+  if (session.priority >= 2 && lowerTierCandidates.length > 0) {
     options.push({
-      label: alternates.length > 0 ? `Try ${alternates[0].sme.name} at lower tier` : "Relax tier by one level",
+      label: `Try ${lowerTierCandidates[0].sme.name} at lower tier`,
       action: "RELAX_TIER",
-      reason: alternates.length > 0
-        ? `${alternates[0].sme.name} is slightly below the requested tier but still has relevant skills and a usable calendar slot.`
-        : "Reasonable only when the topic is straightforward and the session can tolerate a slightly broader match."
+      reason: `${lowerTierCandidates[0].sme.name} is one tier below the requirement but still has relevant skills and a usable calendar slot.`
     });
   }
 
@@ -167,6 +188,7 @@ function buildRemediationOptions(params: {
 function computeCandidateScores(smes: SME[], session: Session, calendarEvents: Record<string, { startTime: string; title: string; isScheduled?: boolean }[]>, currentWeekHours: Record<string, number>) {
   return smes.map((sme) => {
     const sessionTimeSlot = getSessionTimeSlotInZone(session, sme.timeZone);
+    const sessionDateTimeInSmeZone = getSessionDateTimeInZone(session, sme.timeZone);
     let availabilityScore = 0;
     let expertiseFitScore = 0;
     let rollingWorkloadScore = 0;
@@ -175,7 +197,7 @@ function computeCandidateScores(smes: SME[], session: Session, calendarEvents: R
     const isSlotAvailable = sme.availableSlots.includes(sessionTimeSlot);
     const isWithinWeeklyCap = (currentWeekHours[sme.id] || 0) + session.durationHours <= sme.maxWeeklyHours;
     const syncedEvents = calendarEvents[sme.id] || [];
-    const calendarConflict = syncedEvents.find(ev => !ev.isScheduled && ev.startTime === session.startTime);
+    const calendarConflict = syncedEvents.find(ev => !ev.isScheduled && ev.startTime === sessionDateTimeInSmeZone);
     const hasCalendarEventConflict = !!calendarConflict;
 
     if (isSlotAvailable && isWithinWeeklyCap && !hasCalendarEventConflict) {
@@ -286,7 +308,7 @@ export function runMatchingEngine(
     }
 
     const candidateScores = computeCandidateScores(smes, session, calendarEvents, currentWeekHours);
-    const sessionTimeSlot = candidateScores[0] ? getSessionTimeSlotInZone(session, candidateScores[0].sme.timeZone) : `${session.dayOfWeek.slice(0, 3)} ${session.startTime.split(" ")[1]}`;
+    const sessionTimeSlot = getSessionDisplaySlot(session);
 
     // Check if there is an explicit manual override for this session
     const hasOverride = overrides[session.id] !== undefined;

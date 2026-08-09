@@ -1880,9 +1880,19 @@ export default function App() {
                           // Google Calendar sync check
                           const syncedEvents = MOCK_CALENDAR_EVENTS[sme.id] || [];
                           const hasCalendarConflict = syncedEvents.some(ev => ev.startTime === selSess.startTime);
-                          
+
                           const tierOk = TIER_W[sme.tier] >= TIER_W[selSess.minSmeTier];
                           const dropped = sme.maxWeeklyHours === 0;
+                          const matchedSkills = selSess.requiredSkills.filter(sk => sme.skills.includes(sk));
+                          const skillPct = selSess.requiredSkills.length > 0
+                            ? Math.round((matchedSkills.length / selSess.requiredSkills.length) * 100)
+                            : 100;
+                          const availabilityLabel = dropped
+                            ? "Unavailable"
+                            : (avail && !hasCalendarConflict) ? "Available" : "Blocked";
+                          const availabilityTone = dropped
+                            ? "bg-slate-200 text-slate-600"
+                            : (avail && !hasCalendarConflict) ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700";
 
                           return (
                             <button
@@ -1901,6 +1911,9 @@ export default function App() {
                               <div className="flex-1 min-w-0 text-xs">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="font-bold text-slate-900">{sme.name}</span>
+                                  <span className={`text-[8px] px-1.5 py-0.5 rounded font-black ${availabilityTone}`}>
+                                    {availabilityLabel}
+                                  </span>
                                   {hasCalendarConflict && (
                                     <span className="text-[8px] px-1 py-0.5 rounded font-black bg-red-100 text-red-700" title="Google Calendar event conflict synced">CAL EVENT</span>
                                   )}
@@ -1916,6 +1929,10 @@ export default function App() {
                                 </div>
                                 <div className="text-[10px] text-slate-400 mt-0.5">
                                   {sme.tier} · 4wk: {sme.rolling4WeekHours}h · ★ {sme.historicalRating}
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-1">
+                                  Fit {skillPct}% · Slot {slot} · {avail ? "Open on SME calendar" : "Not in SME availability"}
+                                  {hasCalendarConflict ? " · Busy on Google Calendar" : ""}
                                 </div>
                               </div>
                               {isAssigned
@@ -2006,8 +2023,31 @@ export default function App() {
                   const topicRating = sme.topicRatings[s.topic] || 0;
                   const prefersMode = sme.preferredSessionModes.includes(s.mode);
                   const isEligible = avail && !hasCalendarConflict && tierOk && hasSkill && !dropped;
+                  const availabilityLabel = dropped
+                    ? "Unavailable"
+                    : (avail && !hasCalendarConflict) ? "Available" : "Blocked";
+                  const availabilityTone = dropped
+                    ? "bg-slate-200 text-slate-600"
+                    : (avail && !hasCalendarConflict) ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700";
 
-                  return { sme, s, isAssigned, avail, hasCalendarConflict, tierOk, dropped, matchedSkills, hasSkill, skillPct, topicRating, prefersMode, isEligible };
+                  return {
+                    sme,
+                    s,
+                    isAssigned,
+                    slot,
+                    avail,
+                    hasCalendarConflict,
+                    tierOk,
+                    dropped,
+                    matchedSkills,
+                    hasSkill,
+                    skillPct,
+                    topicRating,
+                    prefersMode,
+                    isEligible,
+                    availabilityLabel,
+                    availabilityTone
+                  };
                 })
                 .sort((a, b) => {
                    if (a.isEligible && !b.isEligible) return -1;
@@ -2017,7 +2057,7 @@ export default function App() {
                 })
                 .map((item) => {
                   if (!item) return null;
-                  const { sme, s, isAssigned, avail, hasCalendarConflict, tierOk, dropped, skillPct, topicRating, prefersMode, isEligible } = item;
+                  const { sme, s, isAssigned, slot, avail, hasCalendarConflict, tierOk, dropped, skillPct, topicRating, prefersMode, isEligible, availabilityLabel, availabilityTone } = item;
                   return (
                   <button
                     key={sme.id}
@@ -2037,7 +2077,14 @@ export default function App() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-bold text-slate-900">{sme.name}</span>
                           <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-100 text-slate-600">{sme.tier}</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${availabilityTone}`}>
+                            {availabilityLabel}
+                          </span>
                           {prefersMode && <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Prefers {modalCfg.label}</span>}
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-1">
+                          Match {skillPct}% · Slot {slot} · {avail ? "Open on SME calendar" : "Not in SME availability"}
+                          {hasCalendarConflict ? " · Busy on Google Calendar" : ""}
                         </div>
                         {!isEligible && (
                           <div className="flex gap-1 mt-1">
