@@ -18,13 +18,25 @@ function unfoldIcs(content: string) {
 
 function parseIcsDate(value: string) {
   const cleaned = value.trim();
+  const formatIsoDateTime = (year: string, month: string, day: string, hour: string, minute: string) =>
+    `${year}-${month}-${day} ${hour}:${minute}`;
+  const formatUtcToIst = (date: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date).replace(",", "").replace(/\//g, "-").replace(" ", " ");
   if (/^\d{8}T\d{6}Z$/.test(cleaned)) {
     const year = cleaned.slice(0, 4);
     const month = cleaned.slice(4, 6);
     const day = cleaned.slice(6, 8);
     const hour = cleaned.slice(9, 11);
     const minute = cleaned.slice(11, 13);
-    return `${year}-${month}-${day} ${hour}:${minute}`;
+    return formatUtcToIst(new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute))));
   }
   if (/^\d{8}T\d{6}$/.test(cleaned)) {
     const year = cleaned.slice(0, 4);
@@ -32,14 +44,14 @@ function parseIcsDate(value: string) {
     const day = cleaned.slice(6, 8);
     const hour = cleaned.slice(9, 11);
     const minute = cleaned.slice(11, 13);
-    return `${year}-${month}-${day} ${hour}:${minute}`;
+    return formatIsoDateTime(year, month, day, hour, minute);
   }
   if (/^\d{8}$/.test(cleaned)) {
     return `${cleaned.slice(0, 4)}-${cleaned.slice(4, 6)}-${cleaned.slice(6, 8)} 00:00`;
   }
   const d = new Date(cleaned);
   if (!Number.isNaN(d.getTime())) {
-    return `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)}`;
+    return formatLocal(d);
   }
   return "";
 }
