@@ -202,7 +202,7 @@ function buildRemediationOptions(params: {
 function computeCandidateScores(
   smes: SME[],
   session: Session,
-  calendarEvents: Record<string, { startTime: string; title: string; isScheduled?: boolean }[]>,
+  calendarEvents: Record<string, { startTime: string; title: string; isScheduled?: boolean; isLiveIcs?: boolean }[]>,
   currentWeekHours: Record<string, number>,
   occupiedSlotsBySme: Record<string, Set<string>>
 ) {
@@ -218,7 +218,18 @@ function computeCandidateScores(
     const isWithinWeeklyCap = (currentWeekHours[sme.id] || 0) + session.durationHours <= sme.maxWeeklyHours;
     const syncedEvents = calendarEvents[sme.id] || [];
     const sessionStartInIst = getSessionDateTimeInZone(session, "Asia/Kolkata");
-    const calendarConflict = syncedEvents.find(ev => !ev.isScheduled && normalizeCalendarEventTime(ev.startTime) === sessionStartInIst);
+    const sessionRawTime = session.startTime; // "YYYY-MM-DD HH:MM" local, for mock event matching
+
+    // ─ Live ICS events (Vikram, isLiveIcs:true): parsed into IST by the server-side ICS
+    //   parser, so compare against the session's IST-converted time.
+    // ─ Mock events (other SMEs, no flag): stored as raw session-local times, compare directly.
+    const calendarConflict = syncedEvents.find(ev => {
+      if (ev.isScheduled) return false;
+      const evTime = normalizeCalendarEventTime(ev.startTime);
+      return ev.isLiveIcs
+        ? evTime === sessionStartInIst
+        : evTime === normalizeCalendarEventTime(sessionRawTime);
+    });
     const hasCalendarEventConflict = !!calendarConflict;
 
     if (isSlotAvailable && isWithinWeeklyCap && !hasCalendarEventConflict && !isSlotAlreadyOccupied) {
@@ -294,7 +305,7 @@ function compareCandidatesForSession(
 export function runMatchingEngine(
   smes: SME[],
   sessions: Session[],
-  calendarEvents: Record<string, { startTime: string; title: string; isScheduled?: boolean }[]> = MOCK_CALENDAR_EVENTS,
+  calendarEvents: Record<string, { startTime: string; title: string; isScheduled?: boolean; isLiveIcs?: boolean }[]> = MOCK_CALENDAR_EVENTS,
   overrides: Record<string, string | null> = {}
 ): { assignments: AssignmentResult[]; conflicts: ConflictFlag[]; draftSchedule: Record<string, string | null> } {
   const allConflicts: ConflictFlag[] = [];
@@ -378,10 +389,18 @@ export function runMatchingEngine(
         const manualConflicts: ConflictFlag[] = [];
         let status: AssignmentResult["status"] = "OPTIMAL";
 
-        // Check if manual assignment collides with a Google Calendar busy event
+        // Check if manual assignment collides with a Google Calendar busy event.
+        // Use isLiveIcs flag to pick the right comparison: IST for Vikram's live ICS
+        // events, raw session time for all other SMEs' mock demo events.
         const syncedEvents = calendarEvents[manualSme.id] || [];
         const sessionStartInIst = getSessionDateTimeInZone(session, "Asia/Kolkata");
-        const calEventConflict = syncedEvents.find(ev => !ev.isScheduled && normalizeCalendarEventTime(ev.startTime) === sessionStartInIst);
+        const calEventConflict = syncedEvents.find(ev => {
+          if (ev.isScheduled) return false;
+          const evTime = normalizeCalendarEventTime(ev.startTime);
+          return ev.isLiveIcs
+            ? evTime === sessionStartInIst
+            : evTime === normalizeCalendarEventTime(session.startTime);
+        });
         if (calEventConflict) {
           status = "CONFLICT";
           const calFlag: ConflictFlag = {

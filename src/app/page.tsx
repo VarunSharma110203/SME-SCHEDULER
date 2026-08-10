@@ -4,7 +4,7 @@ import { INITIAL_SMES, INITIAL_SESSIONS, SME, Session } from "@/lib/data";
 import { runMatchingEngine, MOCK_CALENDAR_EVENTS } from "@/lib/matcher";
 import { generateGoogleCalendarUrl, generateWeeklyICS } from "@/lib/calendar-links";
 
-type CalendarEvent = { startTime: string; title: string; isScheduled?: boolean; sessionId?: string };
+type CalendarEvent = { startTime: string; title: string; isScheduled?: boolean; sessionId?: string; isLiveIcs?: boolean };
 type CalendarState = Record<string, CalendarEvent[]>;
 import confetti from "canvas-confetti";
 import {
@@ -69,9 +69,13 @@ export default function App() {
         setGoogleCalendarLive(true);
         setCalendarEvents(prev => ({
           ...prev,
+          // Tag each live event with isLiveIcs:true so the matcher knows
+          // these times are IST-parsed (from ICS) and need IST comparison.
+          // Mock events for other SMEs are NOT tagged and use raw-time comparison.
           [data.smeId]: data.events.map((ev: { startTime: string; title?: string }) => ({
             startTime: ev.startTime,
             title: ev.title || "Google Calendar Busy",
+            isLiveIcs: true,
           })),
         }));
       })
@@ -97,6 +101,39 @@ export default function App() {
       }
     }
     return trimmed;
+  };
+
+  /**
+   * Convert a session's startTime (stored in session.timeZone) to IST string.
+   * This mirrors getSessionDateTimeInZone in matcher.ts so the UI and engine
+   * always agree on whether a calendar event overlaps a session slot.
+   */
+  const getSessionStartInIst = (session: Session): string => {
+    const TIMEZONE_ALIASES: Record<string, string> = {
+      "US/Pacific": "America/Los_Angeles",
+      "US/Eastern": "America/New_York",
+      "Asia/Kolkata": "Asia/Kolkata",
+      "Europe/London": "Europe/London",
+    };
+    const tz = TIMEZONE_ALIASES[session.timeZone] || session.timeZone;
+    const [datePart, timePart] = session.startTime.split(" ");
+    const [year, month, day] = datePart.split("-").map(Number);
+    const [hour, minute] = timePart.split(":").map(Number);
+    // Convert the "wall-clock" local time in session.timeZone to UTC
+    const guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
+    const zoned = new Date(guess.toLocaleString("en-US", { timeZone: tz }));
+    const offsetMinutes = (zoned.getTime() - guess.getTime()) / 60000;
+    const utc = new Date(Date.UTC(year, month - 1, day, hour, minute) - offsetMinutes * 60000);
+    // Render in IST
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(utc).replace(",", "").replace(/\//g, "-").replace(" ", " ");
   };
 
   // Filter sessions by the currently selected week
@@ -2084,8 +2121,13 @@ export default function App() {
                     <span key={sk} className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-50 text-blue-700 border border-blue-200">{sk}</span>
                   ))}
                 </div>
-                <div className="text-[10px] text-slate-500">
-                  Shows Vikram&apos;s IK-usable windows, not his full personal calendar. Live Google Calendar only blocks a slot if that exact time is busy.
+                <div className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                  {googleCalendarLive && liveGoogleSmeId ? (
+                    <><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />Live Google Calendar active · blocks if slot is busy at session time (IST)
+                    </>
+                  ) : (
+                    <>Shows IK availability windows. Assignment blocked if Google Calendar event overlaps this session time.</>
+                  )}
                 </div>
               </div>
             </div>
@@ -2107,11 +2149,19 @@ export default function App() {
                   const slot = `${s.dayOfWeek.slice(0, 3)} ${s.startTime.split(" ")[1]}`;
                   const avail = sme.availableSlots.includes(slot);
                   
-                  // Google Calendar sync check
+                  // Google Calendar conflict check.
+                  // ─ Vikram (liveGoogleSmeId): ICS events are parsed into IST by the
+                  //   server-side parser, so we convert the session time → IST before comparing.
+                  // ─ All other SMEs: events are mock demo data stored as raw session-local
+                  //   times (same format as session.startTime), so compare directly.
                   const syncedEvents = calendarEvents[sme.id] || [];
-                  const sessionTimeKey = normalizeIcsLikeTime(s.startTime);
-                  const hasCalendarConflict = syncedEvents.some(ev => normalizeIcsLikeTime(ev.startTime) === sessionTimeKey);
-                  
+                  const isLiveSme = liveGoogleSmeId === sme.id;
+                  const sessionTimeKey = isLiveSme
+                    ? getSessionStartInIst(s)
+                    : normalizeIcsLikeTime(s.startTime);
+                  const hasCalendarConflict = syncedEvents.some(
+                    ev => !ev.isScheduled && normalizeIcsLikeTime(ev.startTime) === sessionTimeKey
+                  );
                   const tierOk = TIER_W[sme.tier] >= TIER_W[s.minSmeTier];
                   const dropped = sme.maxWeeklyHours === 0;
                   const matchedSkills = s.requiredSkills.filter(sk => sme.skills.includes(sk));
