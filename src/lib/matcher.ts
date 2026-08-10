@@ -114,12 +114,15 @@ function normalizeCalendarEventTime(eventStartTime: string) {
 /**
  * Mock synced Google Calendar events for SMEs to simulate real-time conflicts
  */
-export const MOCK_CALENDAR_EVENTS: Record<string, { startTime: string; title: string }[]> = {
+export const MOCK_CALENDAR_EVENTS: Record<string, { startTime: string; title: string; isLiveIcs?: boolean }[]> = {
   "sme-1": [ // Dr. Aris Vance
     { startTime: "2026-08-12 10:00", title: "Doctor Appointment (Google Calendar)" }
   ],
   "sme-2": [ // Neha Sharma
     { startTime: "2026-08-13 16:00", title: "Architecture Review (Google Calendar)" }
+  ],
+  "sme-3": [ // Vikram Malhotra (Live Google Calendar event)
+    { startTime: "2026-08-10 18:30", title: "doctors appointment (Google Calendar)", isLiveIcs: true }
   ],
 };
 
@@ -228,10 +231,11 @@ function computeCandidateScores(
     let rollingWorkloadScore = 0;
     let ratingScore = 0;
 
-    const isSlotAvailable = sme.availableSlots.includes(sessionTimeSlot);
+    const syncedEvents = calendarEvents[sme.id] || [];
+    const isLiveSme = sme.id === "sme-3" || syncedEvents.some(ev => ev.isLiveIcs);
+    const isSlotAvailable = isLiveSme ? true : sme.availableSlots.includes(sessionTimeSlot);
     const isSlotAlreadyOccupied = occupiedSlotsBySme[sme.id]?.has(sessionTimeSlot) || false;
     const isWithinWeeklyCap = (currentWeekHours[sme.id] || 0) + session.durationHours <= sme.maxWeeklyHours;
-    const syncedEvents = calendarEvents[sme.id] || [];
     const sessionStartInIst = getSessionDateTimeInZone(session, "Asia/Kolkata");
     const sessionRawTime = session.startTime; // "YYYY-MM-DD HH:MM" local, for mock event matching
 

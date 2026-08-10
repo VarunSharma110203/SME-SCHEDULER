@@ -64,20 +64,20 @@ export default function App() {
     fetch("/api/google-calendar/live", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
-        if (cancelled || !data?.liveEnabled || !data?.smeId || !Array.isArray(data?.events)) return;
-        setLiveGoogleSmeId(data.smeId);
+        if (cancelled || !Array.isArray(data?.events)) return;
+        const targetId = (data.smeId === "vikram-live" || !data.smeId) ? "sme-3" : data.smeId;
+        setLiveGoogleSmeId(targetId);
         setGoogleCalendarLive(true);
-        setCalendarEvents(prev => ({
-          ...prev,
-          // Tag each live event with isLiveIcs:true so the matcher knows
-          // these times are IST-parsed (from ICS) and need IST comparison.
-          // Mock events for other SMEs are NOT tagged and use raw-time comparison.
-          [data.smeId]: data.events.map((ev: { startTime: string; title?: string }) => ({
-            startTime: ev.startTime,
-            title: ev.title || "Google Calendar Busy",
-            isLiveIcs: true,
-          })),
-        }));
+        if (data.events.length > 0) {
+          setCalendarEvents(prev => ({
+            ...prev,
+            [targetId]: data.events.map((ev: { startTime: string; title?: string }) => ({
+              startTime: ev.startTime,
+              title: ev.title || "Google Calendar Busy",
+              isLiveIcs: true,
+            })),
+          }));
+        }
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -2159,20 +2159,23 @@ export default function App() {
                   const s = modalSess;
                   const isAssigned = schedule[s.id] === sme.id;
                   const slot = `${s.dayOfWeek.slice(0, 3)} ${s.startTime.split(" ")[1]}`;
-                  const avail = sme.availableSlots.includes(slot);
                   
                   // Google Calendar conflict check.
-                  // ─ Vikram (liveGoogleSmeId): ICS events are parsed into IST by the
-                  //   server-side parser, so we convert the session time → IST before comparing.
-                  // ─ All other SMEs: events are mock demo data stored as raw session-local
-                  //   times (same format as session.startTime), so compare directly.
+                  // ─ Vikram (liveGoogleSmeId / sme-3): Live Google Calendar backed.
+                  //   Any slot where Google Calendar is free is open/available for matching.
+                  //   Blocks ONLY when Google Calendar has a busy event.
+                  // ─ All other SMEs: mock demo data using declared availableSlots.
                   const syncedEvents = calendarEvents[sme.id] || [];
-                  const isLiveSme = liveGoogleSmeId === sme.id;
+                  const isLiveSme = (liveGoogleSmeId === sme.id) || sme.id === "sme-3";
+                  const avail = isLiveSme ? true : sme.availableSlots.includes(slot);
                   const sessionTimeKey = isLiveSme
                     ? getSessionStartInIst(s)
                     : normalizeIcsLikeTime(s.startTime);
                   const hasCalendarConflict = syncedEvents.some(
-                    ev => !ev.isScheduled && normalizeIcsLikeTime(ev.startTime) === sessionTimeKey
+                    ev => !ev.isScheduled && (
+                      normalizeIcsLikeTime(ev.startTime) === sessionTimeKey ||
+                      (sessionTimeKey.length > 5 && ev.startTime.includes(sessionTimeKey))
+                    )
                   );
                   const tierOk = TIER_W[sme.tier] >= TIER_W[s.minSmeTier];
                   const dropped = sme.maxWeeklyHours === 0;
@@ -2230,7 +2233,8 @@ export default function App() {
                   const slotInAvailability = avail;
                   const canTakeThisSlot = avail && !hasCalendarConflict && tierOk && !dropped;
                   const ikSuitable = canTakeThisSlot && (prefersMode || s.mode === "Cohort Class");
-                  const liveBusy = liveGoogleSmeId === sme.id ? hasCalendarConflict : false;
+                  const isLiveSmeCard = (liveGoogleSmeId === sme.id) || sme.id === "sme-3";
+                  const liveBusy = isLiveSmeCard ? hasCalendarConflict : false;
                   return (
                   <button
                     key={sme.id}
@@ -2256,8 +2260,7 @@ export default function App() {
                           {prefersMode && <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Prefers {modalCfg.label}</span>}
                         </div>
                         <div className="text-[10px] text-slate-500 mt-1">
-                          Match {skillPct}% · Slot {slot} · {avail ? "Open on SME calendar" : "Not in SME availability"}
-                          {hasCalendarConflict ? " · Busy on Google Calendar" : ""}
+                          Match {skillPct}% · Slot {slot} · {isLiveSmeCard ? (hasCalendarConflict ? "Busy on Google Calendar" : "Free on Google Calendar") : (avail ? "Open on SME calendar" : "Not in SME availability")}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
