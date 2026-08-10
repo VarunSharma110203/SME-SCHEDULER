@@ -2060,6 +2060,8 @@ export default function App() {
                   const { sme, s, isAssigned, slot, avail, hasCalendarConflict, tierOk, dropped, skillPct, topicRating, prefersMode, isEligible, availabilityLabel, availabilityTone } = item;
                   const openSlots = sme.availableSlots.filter(openSlot => openSlot !== slot).slice(0, 3);
                   const availabilityPreview = sme.availableSlots.slice(0, 4);
+                  const slotInAvailability = avail;
+                  const canTakeThisSlot = avail && !hasCalendarConflict && tierOk && !dropped;
                   return (
                   <button
                     key={sme.id}
@@ -2090,13 +2092,22 @@ export default function App() {
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                            {avail ? "Available in" : "Open slots"}
+                            {slotInAvailability ? "Session slot" : "Open slots"}
                           </span>
-                          {availabilityPreview.map(openSlot => (
-                            <span key={`${sme.id}-${openSlot}`} className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${avail && openSlot === slot ? "bg-emerald-50 text-emerald-700 border-emerald-300" : "bg-blue-50 text-blue-700 border-blue-200"}`}>
-                              {openSlot}
-                            </span>
-                          ))}
+                          {availabilityPreview.map(openSlot => {
+                            const isSessionSlot = openSlot === slot;
+                            const isBlockedHere = isSessionSlot && (!canTakeThisSlot || hasCalendarConflict || dropped);
+                            const chipClass = isSessionSlot
+                              ? isBlockedHere
+                                ? "bg-red-50 text-red-700 border-red-200"
+                                : "bg-emerald-50 text-emerald-700 border-emerald-300"
+                              : "bg-blue-50 text-blue-700 border-blue-200";
+                            return (
+                              <span key={`${sme.id}-${openSlot}`} className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${chipClass}`}>
+                                {isSessionSlot && isBlockedHere ? `${openSlot} blocked` : openSlot}
+                              </span>
+                            );
+                          })}
                         </div>
                         {!avail && openSlots.length > 0 && (
                           <div className="mt-1 flex flex-wrap items-center gap-1.5">
