@@ -1950,7 +1950,7 @@ export default function App() {
                           const avail = sme.availableSlots.includes(slot);
                           
                           // Google Calendar sync check
-                          const syncedEvents = MOCK_CALENDAR_EVENTS[sme.id] || [];
+                          const syncedEvents = calendarEvents[sme.id] || [];
                           const hasCalendarConflict = syncedEvents.some(ev => ev.startTime === selSess.startTime);
 
                           const tierOk = TIER_W[sme.tier] >= TIER_W[selSess.minSmeTier];
@@ -2084,7 +2084,7 @@ export default function App() {
                   const avail = sme.availableSlots.includes(slot);
                   
                   // Google Calendar sync check
-                  const syncedEvents = MOCK_CALENDAR_EVENTS[sme.id] || [];
+                  const syncedEvents = calendarEvents[sme.id] || [];
                   const hasCalendarConflict = syncedEvents.some(ev => ev.startTime === s.startTime);
                   
                   const tierOk = TIER_W[sme.tier] >= TIER_W[s.minSmeTier];
