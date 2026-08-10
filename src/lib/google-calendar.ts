@@ -51,7 +51,7 @@ function parseIcsDate(value: string) {
   }
   const d = new Date(cleaned);
   if (!Number.isNaN(d.getTime())) {
-    return formatLocal(d);
+    return formatUtcToIst(d);
   }
   return "";
 }

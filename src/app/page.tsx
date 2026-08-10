@@ -2088,7 +2088,19 @@ export default function App() {
                   
                   // Google Calendar sync check
                   const syncedEvents = calendarEvents[sme.id] || [];
-                  const hasCalendarConflict = syncedEvents.some(ev => ev.startTime === s.startTime);
+                  const slotKey = `${s.dayOfWeek.slice(0, 3)} ${s.startTime.split(" ")[1]}`;
+                  const hasCalendarConflict = syncedEvents.some(ev => {
+                    const normalized = ev.startTime.includes("T")
+                      ? new Date(ev.startTime).toLocaleString("en-GB", {
+                          timeZone: "Asia/Kolkata",
+                          weekday: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: false,
+                        }).replace(",", "")
+                      : ev.startTime;
+                    return normalized === slotKey || ev.startTime === s.startTime;
+                  });
                   
                   const tierOk = TIER_W[sme.tier] >= TIER_W[s.minSmeTier];
                   const dropped = sme.maxWeeklyHours === 0;
@@ -2100,10 +2112,18 @@ export default function App() {
                   const isEligible = avail && !hasCalendarConflict && tierOk && hasSkill && !dropped;
                   const availabilityLabel = dropped
                     ? "Unavailable"
-                    : (avail && !hasCalendarConflict) ? "Available" : "Blocked";
+                    : hasCalendarConflict
+                      ? "Blocked"
+                      : avail
+                        ? "Available"
+                        : "Blocked";
                   const availabilityTone = dropped
                     ? "bg-slate-200 text-slate-600"
-                    : (avail && !hasCalendarConflict) ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700";
+                    : hasCalendarConflict
+                      ? "bg-red-100 text-red-700"
+                      : avail
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-red-100 text-red-700";
 
                   return {
                     sme,
@@ -2138,6 +2158,7 @@ export default function App() {
                   const slotInAvailability = avail;
                   const canTakeThisSlot = avail && !hasCalendarConflict && tierOk && !dropped;
                   const ikSuitable = canTakeThisSlot && (prefersMode || s.mode === "Cohort Class");
+                  const liveBusy = liveGoogleSmeId === sme.id ? hasCalendarConflict : false;
                   return (
                   <button
                     key={sme.id}
@@ -2168,7 +2189,7 @@ export default function App() {
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                            {slotInAvailability ? (ikSuitable ? "IK-suitable" : "Calendar-free, not ideal") : "Open slots"}
+                            {liveBusy ? "Live calendar busy" : slotInAvailability ? (ikSuitable ? "IK-suitable" : "Calendar-free, not ideal") : "Open slots"}
                           </span>
                           {availabilityPreview.map(openSlot => {
                             const isSessionSlot = openSlot === slot;
