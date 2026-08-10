@@ -44,13 +44,28 @@ function formatZonedDateTimeParts(date: Date, timeZone: string) {
   };
 }
 
-function getUtcFromZonedLocal(input: string, timeZone: string) {
-  const { year, month, day, hour, minute } = parseLocalDateTime(input);
-  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
-  const zoned = new Date(guess.toLocaleString("en-US", { timeZone: resolveTimeZone(timeZone) }));
-  const offsetMinutes =
-    (zoned.getTime() - guess.getTime()) / 60000;
-  return new Date(Date.UTC(year, month - 1, day, hour, minute) - offsetMinutes * 60000);
+function getUtcFromZonedLocal(input: string, timeZone: string): Date {
+  const resolvedTz = resolveTimeZone(timeZone);
+  const [datePart, timePart] = input.trim().split(" ");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [h, min] = timePart.split(":").map(Number);
+
+  const utcMs = Date.UTC(y, m - 1, d, h, min);
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: resolvedTz,
+    year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", hour12: false
+  }).formatToParts(new Date(utcMs));
+
+  const p: Record<string, number> = {};
+  parts.forEach(pt => p[pt.type] = Number(pt.value));
+  if (p.hour === 24) p.hour = 0;
+
+  const targetMs = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+  const diffMs = utcMs - targetMs;
+
+  return new Date(utcMs + diffMs);
 }
 
 function getSessionTimeSlotInZone(session: Session, timeZone: string) {

@@ -115,16 +115,28 @@ export default function App() {
       "Asia/Kolkata": "Asia/Kolkata",
       "Europe/London": "Europe/London",
     };
-    const tz = TIMEZONE_ALIASES[session.timeZone] || session.timeZone;
-    const [datePart, timePart] = session.startTime.split(" ");
-    const [year, month, day] = datePart.split("-").map(Number);
-    const [hour, minute] = timePart.split(":").map(Number);
-    // Convert the "wall-clock" local time in session.timeZone to UTC
-    const guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
-    const zoned = new Date(guess.toLocaleString("en-US", { timeZone: tz }));
-    const offsetMinutes = (zoned.getTime() - guess.getTime()) / 60000;
-    const utc = new Date(Date.UTC(year, month - 1, day, hour, minute) - offsetMinutes * 60000);
-    // Render in IST
+    const resolvedTz = TIMEZONE_ALIASES[session.timeZone] || session.timeZone;
+    const [datePart, timePart] = session.startTime.trim().split(" ");
+    const [y, m, d] = datePart.split("-").map(Number);
+    const [h, min] = timePart.split(":").map(Number);
+
+    const utcMs = Date.UTC(y, m - 1, d, h, min);
+
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: resolvedTz,
+      year: "numeric", month: "numeric", day: "numeric",
+      hour: "numeric", minute: "numeric", hour12: false
+    }).formatToParts(new Date(utcMs));
+
+    const p: Record<string, number> = {};
+    parts.forEach(pt => p[pt.type] = Number(pt.value));
+    if (p.hour === 24) p.hour = 0;
+
+    const targetMs = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+    const diffMs = utcMs - targetMs;
+
+    const utcDate = new Date(utcMs + diffMs);
+
     return new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Kolkata",
       year: "numeric",
@@ -133,7 +145,7 @@ export default function App() {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-    }).format(utc).replace(",", "").replace(/\//g, "-").replace(" ", " ");
+    }).format(utcDate).replace(",", "").replace(/\//g, "-").replace(" ", " ");
   };
 
   // Filter sessions by the currently selected week
