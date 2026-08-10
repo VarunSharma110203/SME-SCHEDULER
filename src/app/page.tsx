@@ -79,6 +79,26 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  const normalizeIcsLikeTime = (value: string) => {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(trimmed)) return trimmed;
+    if (trimmed.includes("T")) {
+      const d = new Date(trimmed);
+      if (!Number.isNaN(d.getTime())) {
+        return new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Kolkata",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }).format(d).replace(",", "").replace(/\//g, "-").replace(" ", " ");
+      }
+    }
+    return trimmed;
+  };
+
   // Filter sessions by the currently selected week
   const weeklySessions = useMemo(() => {
     const start = new Date(currentWeekStart + "T00:00:00");
@@ -1951,7 +1971,8 @@ export default function App() {
                           
                           // Google Calendar sync check
                           const syncedEvents = calendarEvents[sme.id] || [];
-                          const hasCalendarConflict = syncedEvents.some(ev => ev.startTime === selSess.startTime);
+                          const sessionTimeKey = normalizeIcsLikeTime(selSess.startTime);
+                          const hasCalendarConflict = syncedEvents.some(ev => normalizeIcsLikeTime(ev.startTime) === sessionTimeKey);
 
                           const tierOk = TIER_W[sme.tier] >= TIER_W[selSess.minSmeTier];
                           const dropped = sme.maxWeeklyHours === 0;
@@ -2088,19 +2109,8 @@ export default function App() {
                   
                   // Google Calendar sync check
                   const syncedEvents = calendarEvents[sme.id] || [];
-                  const slotKey = `${s.dayOfWeek.slice(0, 3)} ${s.startTime.split(" ")[1]}`;
-                  const hasCalendarConflict = syncedEvents.some(ev => {
-                    const normalized = ev.startTime.includes("T")
-                      ? new Date(ev.startTime).toLocaleString("en-GB", {
-                          timeZone: "Asia/Kolkata",
-                          weekday: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          hour12: false,
-                        }).replace(",", "")
-                      : ev.startTime;
-                    return normalized === slotKey || ev.startTime === s.startTime;
-                  });
+                  const sessionTimeKey = normalizeIcsLikeTime(s.startTime);
+                  const hasCalendarConflict = syncedEvents.some(ev => normalizeIcsLikeTime(ev.startTime) === sessionTimeKey);
                   
                   const tierOk = TIER_W[sme.tier] >= TIER_W[s.minSmeTier];
                   const dropped = sme.maxWeeklyHours === 0;
