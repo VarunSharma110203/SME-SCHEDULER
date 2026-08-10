@@ -1,7 +1,8 @@
 "use client";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { INITIAL_SMES, INITIAL_SESSIONS, SME, Session } from "@/lib/data";
 import { runMatchingEngine, MOCK_CALENDAR_EVENTS } from "@/lib/matcher";
+import { generateGoogleCalendarUrl, generateWeeklyICS } from "@/lib/calendar-links";
 
 type CalendarEvent = { startTime: string; title: string; isScheduled?: boolean; sessionId?: string };
 type CalendarState = Record<string, CalendarEvent[]>;
@@ -47,6 +48,8 @@ export default function App() {
   const [calendarEvents, setCalendarEvents] = useState<CalendarState>(
     () => JSON.parse(JSON.stringify(MOCK_CALENDAR_EVENTS)) as CalendarState
   );
+  const [liveGoogleSmeId, setLiveGoogleSmeId] = useState<string | null>(null);
+  const [googleCalendarLive, setGoogleCalendarLive] = useState(false);
 
   const [role, setRole] = useState<Role>("OPS");
   const [view, setView] = useState<OpsView>("SCHEDULE");
@@ -55,6 +58,26 @@ export default function App() {
   const [scheduleLayout, setScheduleLayout] = useState<"WEEK" | "TABLE">("WEEK");
   const [modeFilter, setModeFilter] = useState("ALL");
   const [inspectorOpen, setInspectorOpen] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/google-calendar/live", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !data?.liveEnabled || !data?.smeId || !Array.isArray(data?.events)) return;
+        setLiveGoogleSmeId(data.smeId);
+        setGoogleCalendarLive(true);
+        setCalendarEvents(prev => ({
+          ...prev,
+          [data.smeId]: data.events.map((ev: { startTime: string; title?: string }) => ({
+            startTime: ev.startTime,
+            title: ev.title || "Google Calendar Busy",
+          })),
+        }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // Filter sessions by the currently selected week
   const weeklySessions = useMemo(() => {
@@ -267,7 +290,7 @@ export default function App() {
     }));
   };
 
-  const approveOne = (sessId: string, e: React.MouseEvent) => {
+  const approveOne = async (sessId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const asgn = assignments.find(a => a.sessionId === sessId);
     const critFlag = asgn?.conflicts.find(c => c.severity === "CRITICAL");
@@ -279,19 +302,53 @@ export default function App() {
     if (smeId && !approved[sessId]) {
       setApproved(p => ({ ...p, [sessId]: true }));
       writeToCalendar(sessId, smeId);
+      try {
+        await fetch("/api/schedule/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionIds: [sessId],
+            schedule,
+            sessions: sessions.map(sess => ({
+              id: sess.id,
+              title: sess.title,
+              startTime: sess.startTime,
+              durationHours: sess.durationHours,
+            })),
+          }),
+        });
+      } catch {}
     }
   };
 
-  const approveAll = () => {
+  const approveAll = async () => {
     const batch: Record<string, true> = {};
+    const approvedSessionIds: string[] = [];
     assignments.forEach(a => {
       const hasCrit = a.conflicts.some(c => c.severity === "CRITICAL");
       if (schedule[a.sessionId] && !hasCrit && a.status !== "CONFLICT" && !approved[a.sessionId] && weeklySessions.some(s => s.id === a.sessionId)) {
         batch[a.sessionId] = true;
+        approvedSessionIds.push(a.sessionId);
         if (a.smeId) writeToCalendar(a.sessionId, a.smeId);
       }
     });
     setApproved(p => ({ ...p, ...batch }));
+    try {
+      await fetch("/api/schedule/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionIds: approvedSessionIds,
+          schedule,
+          sessions: sessions.map(sess => ({
+            id: sess.id,
+            title: sess.title,
+            startTime: sess.startTime,
+            durationHours: sess.durationHours,
+          })),
+        }),
+      });
+    } catch {}
     try { confetti({ particleCount: 60, spread: 40, origin: { y: 0.7 } }); } catch {}
   };
 
@@ -875,15 +932,30 @@ export default function App() {
                               </div>
 
                               {!isApproved && !isCrit && assignedSme && !isPastWeek && (
-                                <button
-                                  onClick={(e) => approveOne(sess.id, e)}
-                                  className="w-full py-1 rounded-lg text-[10px] font-bold border transition-all"
-                                  style={{ borderColor: "#1E3A8A", color: "#1E3A8A", background: "transparent" }}
-                                  onMouseEnter={e => { (e.target as HTMLElement).style.background = "#EFF6FF"; }}
-                                  onMouseLeave={e => { (e.target as HTMLElement).style.background = "transparent"; }}
-                                >
-                                  ✓ Approve
-                                </button>
+                                <div className="space-y-1">
+                                  <button
+                                    onClick={(e) => approveOne(sess.id, e)}
+                                    className="w-full py-1 rounded-lg text-[10px] font-bold border transition-all"
+                                    style={{ borderColor: "#1E3A8A", color: "#1E3A8A", background: "transparent" }}
+                                    onMouseEnter={e => { (e.target as HTMLElement).style.background = "#EFF6FF"; }}
+                                    onMouseLeave={e => { (e.target as HTMLElement).style.background = "transparent"; }}
+                                  >
+                                    ✓ Approve
+                                  </button>
+                                  <a
+                                    href={generateGoogleCalendarUrl({
+                                      topic: sess.topic,
+                                      track: sess.cohortName,
+                                      start_time_utc: new Date(sess.startTime.replace(" ", "T") + ":00").toISOString(),
+                                      duration_hours: sess.durationHours,
+                                    })}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="block w-full py-1 rounded-lg text-[10px] font-bold text-center border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-all"
+                                  >
+                                    Add to Google Calendar
+                                  </a>
+                                </div>
                               )}
 
                               {isApproved && (
