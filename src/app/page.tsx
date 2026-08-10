@@ -2063,6 +2063,9 @@ export default function App() {
                     <span key={sk} className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-50 text-blue-700 border border-blue-200">{sk}</span>
                   ))}
                 </div>
+                <div className="text-[10px] text-slate-500">
+                  Shows Vikram&apos;s IK-usable windows, not his full personal calendar. Live Google Calendar only blocks a slot if that exact time is busy.
+                </div>
               </div>
             </div>
             
@@ -2134,6 +2137,7 @@ export default function App() {
                   const availabilityPreview = sme.availableSlots.slice(0, 4);
                   const slotInAvailability = avail;
                   const canTakeThisSlot = avail && !hasCalendarConflict && tierOk && !dropped;
+                  const ikSuitable = canTakeThisSlot && (prefersMode || s.mode === "Cohort Class");
                   return (
                   <button
                     key={sme.id}
@@ -2164,7 +2168,7 @@ export default function App() {
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                            {slotInAvailability ? "Session slot" : "Open slots"}
+                            {slotInAvailability ? (ikSuitable ? "IK-suitable" : "Calendar-free, not ideal") : "Open slots"}
                           </span>
                           {availabilityPreview.map(openSlot => {
                             const isSessionSlot = openSlot === slot;
