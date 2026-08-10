@@ -78,6 +78,24 @@ function getSessionDateTimeInZone(session: Session, timeZone: string) {
   return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
 }
 
+function normalizeCalendarEventTime(eventStartTime: string) {
+  const trimmed = eventStartTime.trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(trimmed)) return trimmed;
+  const d = new Date(trimmed);
+  if (!Number.isNaN(d.getTime())) {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(d).replace(",", "").replace(/\//g, "-").replace(" ", " ");
+  }
+  return trimmed;
+}
+
 /**
  * Mock synced Google Calendar events for SMEs to simulate real-time conflicts
  */
@@ -199,7 +217,8 @@ function computeCandidateScores(
     const isSlotAlreadyOccupied = occupiedSlotsBySme[sme.id]?.has(sessionTimeSlot) || false;
     const isWithinWeeklyCap = (currentWeekHours[sme.id] || 0) + session.durationHours <= sme.maxWeeklyHours;
     const syncedEvents = calendarEvents[sme.id] || [];
-    const calendarConflict = syncedEvents.find(ev => !ev.isScheduled && ev.startTime === session.startTime);
+    const sessionStartInIst = getSessionDateTimeInZone(session, "Asia/Kolkata");
+    const calendarConflict = syncedEvents.find(ev => !ev.isScheduled && normalizeCalendarEventTime(ev.startTime) === sessionStartInIst);
     const hasCalendarEventConflict = !!calendarConflict;
 
     if (isSlotAvailable && isWithinWeeklyCap && !hasCalendarEventConflict && !isSlotAlreadyOccupied) {
@@ -361,7 +380,8 @@ export function runMatchingEngine(
 
         // Check if manual assignment collides with a Google Calendar busy event
         const syncedEvents = calendarEvents[manualSme.id] || [];
-        const calEventConflict = syncedEvents.find(ev => !ev.isScheduled && ev.startTime === session.startTime);
+        const sessionStartInIst = getSessionDateTimeInZone(session, "Asia/Kolkata");
+        const calEventConflict = syncedEvents.find(ev => !ev.isScheduled && normalizeCalendarEventTime(ev.startTime) === sessionStartInIst);
         if (calEventConflict) {
           status = "CONFLICT";
           const calFlag: ConflictFlag = {
