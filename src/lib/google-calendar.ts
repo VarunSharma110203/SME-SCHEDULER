@@ -2,10 +2,8 @@ function env(name: string) {
   return process.env[name]?.trim() || "";
 }
 
-const DEFAULT_ICAL_URL = "https://calendar.google.com/calendar/ical/41e95241d283dfd5edee3389c46860fd9c1ee590ecd44480f8b2eb94d3e57c0d%40group.calendar.google.com/private-614f87a75eee490cc4f27817433dbf79/basic.ics";
-
 export function getLiveGoogleConfig() {
-  const icalUrl = env("LIVE_ICAL_URL") || DEFAULT_ICAL_URL;
+  const icalUrl = env("LIVE_ICAL_URL");
   const rawId = env("LIVE_GOOGLE_CALENDAR_SME_ID") || "sme-3";
   const smeId = (rawId === "vikram-live" || !rawId) ? "sme-3" : rawId;
   return {
