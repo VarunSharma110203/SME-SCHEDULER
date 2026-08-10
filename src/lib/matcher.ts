@@ -88,9 +88,6 @@ export const MOCK_CALENDAR_EVENTS: Record<string, { startTime: string; title: st
   "sme-2": [ // Neha Sharma
     { startTime: "2026-08-13 16:00", title: "Architecture Review (Google Calendar)" }
   ],
-  "sme-3": [ // Vikram Malhotra
-    { startTime: "2026-08-10 18:30", title: "DP Practice Review Session (Google Calendar)" }
-  ]
 };
 
 /**
